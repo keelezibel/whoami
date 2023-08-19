@@ -8,6 +8,8 @@ import os
 import ffmpeg
 import datetime
 import torch
+import torchaudio
+import numpy as np
 from glob import glob
 import pandas as pd
 from pyannote.audio import Pipeline
@@ -32,9 +34,18 @@ class CompareSpeaker():
     def model_init(self):
         self.spkr_embed_model = SpeakerRecognition.from_hparams("/models/speechbrain")
 
-    def compare_speaker(self, ref, audio):
+    def compare_speaker_file(self, ref, audio):
         score, prediction = self.spkr_embed_model.verify_files(ref, audio)
         return score.numpy()[0], prediction.numpy()[0]
+    
+    def compare_speaker_arr(self, ref, audio, threshold=0.5):
+        signal, _ = torchaudio.load(audio)
+        signal_emb = self.spkr_embed_model.encode_batch(signal)
+        # Verify:
+        similarity_fn = torch.nn.CosineSimilarity(dim=-1, eps=1e-6)
+        score  = similarity_fn(signal_emb, torch.tensor(ref))
+
+        return score.item(), (score > threshold).item()
     
     def extract_frame(self, in_filename, out_filename, start_timestamp, end_timestamp):
         command_str = f"ffmpeg -y -i '{in_filename}' -ss {start_timestamp} -to {end_timestamp} -ac 1 -ar 16000 '{out_filename}' -hide_banner -loglevel error"
@@ -49,6 +60,12 @@ class CompareSpeaker():
             audio_file,
             format="wav",
         )
+
+        # Check for filetype extension
+        filename = os.path.basename(ref_audio_files[0])
+        extension = filename.split('.')[-1]
+        if extension == 'npy':
+            ref_audio_files = np.load(ref_audio_files[0])
 
         res = ""
         res_df = pd.DataFrame(columns=['start', 'end', 'score'])
@@ -66,9 +83,14 @@ class CompareSpeaker():
                 self.extract_frame(audio_file, f"/app/data/tmp/tmp_{start_time}_{end_time}.wav", r, segment_end)
                 # Compare against all reference speeches
                 score_overall = []
+
                 for ref_audio_file in ref_audio_files:
-                    score, _ = self.compare_speaker(ref_audio_file, f"/app/data/tmp/tmp_{start_time}_{end_time}.wav")
-                    score_overall.append(score)
+                    if extension == 'npy':
+                        score, _ = self.compare_speaker_arr(ref_audio_file, f"/app/data/tmp/tmp_{start_time}_{end_time}.wav")
+                        score_overall.append(score)
+                    else:
+                        score, _ = self.compare_speaker_file(ref_audio_file, f"/app/data/tmp/tmp_{start_time}_{end_time}.wav")
+                        score_overall.append(score)
                 
                 final_score = 0
                 if method == "max":

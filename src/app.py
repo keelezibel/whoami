@@ -89,7 +89,8 @@ with gr.Blocks() as demo:
             video = gr.Video(label='Original Video')
             # File Upload for reference audio
             file_output = gr.File(label='Reference Audio')
-            upload_button = gr.UploadButton("Click to Upload Reference Audio Files", file_types=["audio"], file_count="multiple")
+            gr.Markdown('Files can be .npy or .wav. npy file should be of N x embedding_dims(192)')
+            upload_button = gr.UploadButton("Upload Reference Audio Files", file_count="multiple")
             upload_button.upload(gio.upload_files, upload_button, file_output)
 
             window_res = gr.Slider(minimum=3, maximum=10, value=5, step=1, interactive=True, label="Window Size", info="Choose between 3 and 10s")
